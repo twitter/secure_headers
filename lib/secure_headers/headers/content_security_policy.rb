@@ -49,12 +49,12 @@ module SecureHeaders
     #
     # Returns a content security policy header value.
     def build_value
-      directives.map do |directive_name|
+      ORDERED_DIRECTIVES.map do |directive_name|
         case DIRECTIVE_VALUE_TYPES[directive_name]
         when :source_list, :require_sri_for_list # require_sri is a simple set of strings that don't need to deal with symbol casing
           build_source_list_directive(directive_name)
         when :boolean
-          symbol_to_hyphen_case(directive_name) if @config.directive_value(directive_name)
+          DIRECTIVES_SYMBOL_TO_STRING[directive_name] if @config.directive_value(directive_name)
         when :sandbox_list
           build_sandbox_list_directive(directive_name)
         when :media_type_list
@@ -77,11 +77,11 @@ module SecureHeaders
       # A maximally strict sandbox policy is just the `sandbox` directive,
       # whith no configuraiton values.
       if max_strict_policy
-        symbol_to_hyphen_case(directive)
+        PolicyManagement::DIRECTIVES_SYMBOL_TO_STRING[directive]
       elsif sandbox_list && sandbox_list.any?
         [
-          symbol_to_hyphen_case(directive),
-          sandbox_list.uniq
+          PolicyManagement::DIRECTIVES_SYMBOL_TO_STRING[directive],
+          sandbox_list
         ].join(" ")
       end
     end
@@ -90,8 +90,8 @@ module SecureHeaders
       return unless media_type_list = @config.directive_value(directive)
       if media_type_list && media_type_list.any?
         [
-          symbol_to_hyphen_case(directive),
-          media_type_list.uniq
+          PolicyManagement::DIRECTIVES_SYMBOL_TO_STRING[directive],
+          media_type_list
         ].join(" ")
       end
     end
@@ -101,79 +101,76 @@ module SecureHeaders
     # directive_name - a symbol representing the various ALL_DIRECTIVES
     #
     # Returns a string representing a directive.
+    NEWLINE_OR_SEMI_COLON = /(\n|;)/
     def build_source_list_directive(directive)
       source_list = @config.directive_value(directive)
       if source_list != OPT_OUT && source_list && source_list.any?
-        minified_source_list = minify_source_list(directive, source_list).join(" ")
+        populate_nonces!(directive, source_list)
+        reject_all_values_if_none!(source_list)
 
-        if minified_source_list =~ /(\n|;)/
-          Kernel.warn("#{directive} contains a #{$1} in #{minified_source_list.inspect} which will raise an error in future versions. It has been replaced with a blank space.")
+        unless @config[:disable_minification]
+          minify_source_list!(directive, source_list)
         end
 
-        escaped_source_list = minified_source_list.gsub(/[\n;]/, " ")
-        [symbol_to_hyphen_case(directive), escaped_source_list].join(" ").strip
+        sources = source_list.uniq.join(" ")
+
+        if sources =~ NEWLINE_OR_SEMI_COLON
+          Kernel.warn("#{directive} contains a #{$1} in #{sources.inspect} which will raise an error in future versions. It has been replaced with a blank space.")
+          sources.gsub!(NEWLINE_OR_SEMI_COLON, " ")
+        end
+
+        [PolicyManagement::DIRECTIVES_SYMBOL_TO_STRING[directive], sources].join(" ").strip
       end
     end
 
     # If a directive contains *, all other values are omitted.
     # If a directive contains 'none' but has other values, 'none' is ommitted.
     # Schemes are stripped (see http://www.w3.org/TR/CSP2/#match-source-expression)
-    def minify_source_list(directive, source_list)
-      source_list = source_list.compact
+    def minify_source_list!(directive, source_list)
       if source_list.include?(STAR)
-        keep_wildcard_sources(source_list)
+        keep_wildcard_sources!(source_list)
       else
-        source_list = populate_nonces(directive, source_list)
-        source_list = reject_all_values_if_none(source_list)
-
         unless directive == REPORT_URI || @preserve_schemes
-          source_list = strip_source_schemes(source_list)
+          strip_source_schemes!(source_list)
         end
-        dedup_source_list(source_list)
+        dedup_source_list!(source_list)
       end
     end
 
     # Discard trailing entries (excluding unsafe-*) since * accomplishes the same.
-    def keep_wildcard_sources(source_list)
-      source_list.select { |value| WILDCARD_SOURCES.include?(value) }
+    def keep_wildcard_sources!(source_list)
+      source_list.reject! { |value| !WILDCARD_SOURCES.include?(value) }
     end
 
     # Discard any 'none' values if more directives are supplied since none may override values.
-    def reject_all_values_if_none(source_list)
+    def reject_all_values_if_none!(source_list)
       if source_list.length > 1
-        source_list.reject { |value| value == NONE }
-      else
-        source_list
+        source_list.reject! { |value| value == NONE }
       end
     end
 
     # Removes duplicates and sources that already match an existing wild card.
     #
     # e.g. *.github.com asdf.github.com becomes *.github.com
-    def dedup_source_list(sources)
-      sources = sources.uniq
-      wild_sources = sources.select { |source| source =~ STAR_REGEXP }
+    def dedup_source_list!(sources)
+      wild_sources = sources.select { |source| STAR_REGEXP.match?(source)  }
 
       if wild_sources.any?
-        sources.reject do |source|
+        sources.reject! do |source|
           !wild_sources.include?(source) &&
             wild_sources.any? { |pattern| File.fnmatch(pattern, source) }
         end
-      else
-        sources
       end
     end
 
     # Private: append a nonce to the script/style directories if script_nonce
     # or style_nonce are provided.
-    def populate_nonces(directive, source_list)
+    def populate_nonces!(directive, source_list)
       case directive
       when SCRIPT_SRC
-        append_nonce(source_list, @script_nonce)
+        append_nonce!(source_list, @script_nonce)
       when STYLE_SRC
-        append_nonce(source_list, @style_nonce)
-      else
-        source_list
+        append_nonce!(source_list, @style_nonce)
       end
     end
 
@@ -182,32 +179,16 @@ module SecureHeaders
     #
     # While CSP is backward compatible in that a policy with a nonce will ignore
     # unsafe-inline, this is more concise.
-    def append_nonce(source_list, nonce)
+    def append_nonce!(source_list, nonce)
       if nonce
         source_list.push("'nonce-#{nonce}'")
         source_list.push(UNSAFE_INLINE) unless @config[:disable_nonce_backwards_compatibility]
       end
-
-      source_list
-    end
-
-    # Private: return the list of directives,
-    # starting with default-src and ending with report-uri.
-    def directives
-      [
-        DEFAULT_SRC,
-        BODY_DIRECTIVES,
-        REPORT_URI,
-      ].flatten
     end
 
     # Private: Remove scheme from source expressions.
-    def strip_source_schemes(source_list)
-      source_list.map { |source_expression| source_expression.sub(HTTP_SCHEME_REGEX, "") }
-    end
-
-    def symbol_to_hyphen_case(sym)
-      sym.to_s.tr("_", "-")
+    def strip_source_schemes!(source_list)
+      source_list.map! { |source_expression| source_expression&.sub(HTTP_SCHEME_REGEX, "") }
     end
   end
 end

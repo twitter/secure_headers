@@ -22,7 +22,7 @@ module SecureHeaders
       def validate_config!(config)
         return if config.nil? || config == OPT_OUT
         raise TypeError.new("Must be a string. Found #{config.class}: #{config} #{config.class}") unless config.is_a?(String)
-        raise STSConfigError.new(MESSAGE) unless config =~ VALID_STS_HEADER
+        raise STSConfigError.new(MESSAGE) unless VALID_STS_HEADER.match?(config)
       end
     end
   end

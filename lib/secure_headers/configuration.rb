@@ -72,6 +72,16 @@ module SecureHeaders
         default_config.dup
       end
 
+      # Private: convenience method purely DRY things up. The value may not be a
+      # hash (e.g. OPT_OUT, nil)
+      def deep_copy_if_hash(value)
+        if value.is_a?(Hash)
+          deep_copy(value)
+        else
+          value
+        end
+      end
+
       private
 
       def named_append_or_override_exists?(name)
@@ -101,16 +111,6 @@ module SecureHeaders
           raise NotYetConfiguredError, "Default policy not yet configured"
         end
         @default_config
-      end
-
-      # Private: convenience method purely DRY things up. The value may not be a
-      # hash (e.g. OPT_OUT, nil)
-      def deep_copy_if_hash(value)
-        if value.is_a?(Hash)
-          deep_copy(value)
-        else
-          value
-        end
       end
     end
 
@@ -152,7 +152,7 @@ module SecureHeaders
     end
 
     def initialize(&block)
-      @cookies = self.class.send(:deep_copy_if_hash, Cookie::COOKIE_DEFAULTS)
+      @cookies = self.class.deep_copy_if_hash(Cookie::COOKIE_DEFAULTS)
       @clear_site_data = nil
       @csp = nil
       @csp_report_only = nil
@@ -176,9 +176,7 @@ module SecureHeaders
     # Returns a deep-dup'd copy of this configuration.
     def dup
       copy = self.class.new
-      copy.cookies = self.class.send(:deep_copy_if_hash, @cookies)
-      copy.csp = @csp.dup if @csp
-      copy.csp_report_only = @csp_report_only.dup if @csp_report_only
+      copy.cookies = self.class.deep_copy_if_hash(@cookies)
       copy.x_content_type_options = @x_content_type_options
       copy.hsts = @hsts
       copy.x_frame_options = @x_frame_options
@@ -188,6 +186,10 @@ module SecureHeaders
       copy.clear_site_data = @clear_site_data
       copy.expect_certificate_transparency = @expect_certificate_transparency
       copy.referrer_policy = @referrer_policy
+
+      # These settings handle any necessary dup'ing
+      copy.csp = @csp if @csp
+      copy.csp_report_only = @csp_report_only if @csp_report_only
       copy
     end
 
@@ -244,7 +246,7 @@ module SecureHeaders
       when OPT_OUT
         @csp = new_csp
       when ContentSecurityPolicyConfig
-        @csp = new_csp
+        @csp = new_csp.class.from_self(new_csp)
       when Hash
         @csp = ContentSecurityPolicyConfig.new(new_csp)
       else
@@ -263,7 +265,7 @@ module SecureHeaders
       when OPT_OUT
         @csp_report_only = new_csp
       when ContentSecurityPolicyReportOnlyConfig
-        @csp_report_only = new_csp.dup
+        @csp_report_only = new_csp.class.from_self(new_csp)
       when ContentSecurityPolicyConfig
         @csp_report_only = new_csp.make_report_only
       when Hash

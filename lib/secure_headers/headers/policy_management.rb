@@ -92,9 +92,18 @@ module SecureHeaders
 
     ALL_DIRECTIVES = (DIRECTIVES_1_0 + DIRECTIVES_2_0 + DIRECTIVES_3_0).uniq.sort
 
+    DIRECTIVES_SYMBOL_TO_STRING = Hash[ALL_DIRECTIVES.collect { |directive| [directive, directive.to_s.tr("_", "-").freeze] }].freeze
+
     # Think of default-src and report-uri as the beginning and end respectively,
     # everything else is in between.
     BODY_DIRECTIVES = ALL_DIRECTIVES - [DEFAULT_SRC, REPORT_URI]
+
+    # Because we like everything nice and tidy and in a logical order
+    ORDERED_DIRECTIVES = [
+      DEFAULT_SRC,
+      BODY_DIRECTIVES,
+      REPORT_URI,
+    ].flatten
 
     DIRECTIVE_VALUE_TYPES = {
       BASE_URI                  => :source_list,
@@ -154,7 +163,8 @@ module SecureHeaders
     META_CONFIGS = [
       :report_only,
       :preserve_schemes,
-      :disable_nonce_backwards_compatibility
+      :disable_nonce_backwards_compatibility,
+      :disable_minification,
     ].freeze
 
     NONCES = [
@@ -162,7 +172,7 @@ module SecureHeaders
       :style_nonce
     ].freeze
 
-    REQUIRE_SRI_FOR_VALUES = Set.new(%w(script style))
+    REQUIRE_SRI_FOR_VALUES = Set.new(%w(script style)).freeze
 
     module ClassMethods
       # Public: generate a header name, value array that is user-agent-aware.
@@ -193,7 +203,7 @@ module SecureHeaders
           raise ContentSecurityPolicyConfigError.new("csp_report_only config must have :report_only set to true")
         end
 
-        ContentSecurityPolicyConfig.attrs.each do |key|
+        ContentSecurityPolicyConfig::ATTRS.each do |key|
           value = config.directive_value(key)
           next unless value
 
@@ -246,11 +256,11 @@ module SecureHeaders
       def merge_policy_additions(original, additions)
         original.merge(additions) do |directive, lhs, rhs|
           if list_directive?(directive)
-            (lhs.to_a + rhs.to_a).compact.uniq
+            (lhs.to_a + rhs.to_a).uniq
           else
             rhs
           end
-        end.reject { |_, value| value.nil? || value == [] } # this mess prevents us from adding empty directives.
+        end
       end
 
       # Returns True if a directive expects a list of values and False otherwise.
@@ -261,18 +271,18 @@ module SecureHeaders
           require_sri_for_list?(directive)
       end
 
+      NONCE_PATTERN = /_nonce/
+      NONCE_MAPPING = Hash[NONCES.collect { |directive| [directive, directive.to_s.gsub(NONCE_PATTERN, "_src").to_sym] }]
       # For each directive in additions that does not exist in the original config,
       # copy the default-src value to the original config. This modifies the original hash.
       def populate_fetch_source_with_default!(original, additions)
         # in case we would be appending to an empty directive, fill it with the default-src value
         additions.each_key do |directive|
-          directive = if directive.to_s.end_with?("_nonce")
-            directive.to_s.gsub(/_nonce/, "_src").to_sym
-          else
-            directive
+          if NONCE_MAPPING.key?(directive)
+            directive = NONCE_MAPPING[directive]
           end
           # Don't set a default if directive has an existing value
-          next if original[directive]
+          next if original[directive] == false || original[directive]&.any?
           if FETCH_SOURCES.include?(directive)
             original[directive] = original[DEFAULT_SRC]
           end
@@ -335,11 +345,12 @@ module SecureHeaders
       # Private: validates that a media type expression:
       # 1. is an array of strings
       # 2. each element is of the form type/subtype
+      MEDIA_TYPE_EXPRESSION = /\A.+\/.+\z/
       def validate_media_type_expression!(directive, media_type_expression)
         ensure_array_of_strings!(directive, media_type_expression)
-        valid = media_type_expression.compact.all? do |v|
+        valid = media_type_expression.all? do |v|
           # All media types are of the form: <type from RFC 2045> "/" <subtype from RFC 2045>.
-          v =~ /\A.+\/.+\z/
+          v.nil? || MEDIA_TYPE_EXPRESSION.match?(v)
         end
         if !valid
           raise ContentSecurityPolicyConfigError.new("#{directive} must be an array of valid media types (ex. application/pdf)")
@@ -376,7 +387,8 @@ module SecureHeaders
       end
 
       def ensure_array_of_strings!(directive, value)
-        if (!value.is_a?(Array) || !value.compact.all? { |v| v.is_a?(String) })
+        array_or_set = value.is_a?(Array) || value.is_a?(Set)
+        if (!array_or_set || !value.all? { |v| v.nil? || v.is_a?(String) })
           raise ContentSecurityPolicyConfigError.new("#{directive} must be an array of strings")
         end
       end

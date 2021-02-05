@@ -19,7 +19,7 @@ module SecureHeaders
       def validate_config!(config)
         return if config.nil? || config == OPT_OUT
         raise TypeError.new("Must be a string. Found #{config.class}: #{config}") unless config.is_a?(String)
-        raise XXssProtectionConfigError.new("Invalid format (see VALID_X_XSS_HEADER)") unless config.to_s =~ VALID_X_XSS_HEADER
+        raise XXssProtectionConfigError.new("Invalid format (see VALID_X_XSS_HEADER)") unless VALID_X_XSS_HEADER.match?(config)
       end
     end
   end

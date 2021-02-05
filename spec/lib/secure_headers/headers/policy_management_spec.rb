@@ -113,7 +113,7 @@ module SecureHeaders
       it "rejects unknown directives / config" do
         expect do
           ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_src: %w('self'), default_src_totally_mispelled: "steve"))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+        end.to raise_error(NoMethodError)
       end
 
       # this is mostly to ensure people don't use the antiquated shorthands common in other configs

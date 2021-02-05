@@ -445,7 +445,7 @@ module SecureHeaders
           Configuration.default do |config|
             config.csp = { made_up_directive: "123456" }
           end
-        end.to raise_error(ContentSecurityPolicyConfigError)
+        end.to raise_error(NoMethodError)
       end
 
       it "validates your xfo config upon configuration" do

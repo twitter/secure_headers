@@ -8,7 +8,7 @@ module SecureHeaders
     INVALID_ENFORCE_VALUE_ERROR = "enforce must be a boolean".freeze
     REQUIRED_MAX_AGE_ERROR      = "max-age is a required directive.".freeze
     INVALID_MAX_AGE_ERROR       = "max-age must be a number.".freeze
-
+    MAX_AGE_PATTERN = /\A\d+\z/
     class << self
       # Public: Generate a Expect-CT header.
       #
@@ -31,7 +31,7 @@ module SecureHeaders
 
         if !config[:max_age]
           raise ExpectCertificateTransparencyConfigError.new(REQUIRED_MAX_AGE_ERROR)
-        elsif config[:max_age].to_s !~ /\A\d+\z/
+        elsif !MAX_AGE_PATTERN.match?(config[:max_age].to_s)
           raise ExpectCertificateTransparencyConfigError.new(INVALID_MAX_AGE_ERROR)
         end
       end

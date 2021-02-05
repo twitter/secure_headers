@@ -23,7 +23,7 @@ module SecureHeaders
       def validate_config!(config)
         return if config.nil? || config == OPT_OUT
         raise TypeError.new("Must be a string. Found #{config.class}: #{config}") unless config.is_a?(String)
-        unless config =~ VALID_XFO_HEADER
+        unless VALID_XFO_HEADER.match?(config)
           raise XFOConfigError.new("Value must be SAMEORIGIN|DENY|ALLOW-FROM:|ALLOWALL")
         end
       end

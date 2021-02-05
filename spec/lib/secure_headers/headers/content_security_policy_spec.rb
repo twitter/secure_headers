@@ -43,6 +43,11 @@ module SecureHeaders
         expect(csp.value).not_to include("'none'")
       end
 
+      it "discards 'none' values if any other source expressions are present with minification disabled" do
+        csp = ContentSecurityPolicy.new(default_opts.merge(child_src: %w('self' 'none'), disable_minification: true))
+        expect(csp.value).not_to include("'none'")
+      end
+
       it "discards source expressions (besides unsafe-* and non-host source values) when * is present" do
         csp = ContentSecurityPolicy.new(default_src: %w(* 'unsafe-inline' 'unsafe-eval' http: https: example.org data: blob:))
         expect(csp.value).to eq("default-src * 'unsafe-inline' 'unsafe-eval' data: blob:")
@@ -54,6 +59,15 @@ module SecureHeaders
         }
         csp = ContentSecurityPolicy.new(config)
         expect(csp.value).to eq("default-src *.example.org")
+      end
+
+      it "preserves source expressions based on overlapping wildcards when configured" do
+        config = {
+          default_src: %w(a.example.org b.example.org *.example.org https://*.example.org),
+          disable_minification: true,
+        }
+        csp = ContentSecurityPolicy.new(config)
+        expect(csp.value).to eq("default-src a.example.org b.example.org *.example.org https://*.example.org")
       end
 
       it "removes http/s schemes from hosts" do
@@ -159,6 +173,11 @@ module SecureHeaders
       it "supports strict-dynamic and opting out of the appended 'unsafe-inline'" do
         csp = ContentSecurityPolicy.new({default_src: %w('self'), script_src: [ContentSecurityPolicy::STRICT_DYNAMIC], script_nonce: 123456, disable_nonce_backwards_compatibility: true })
         expect(csp.value).to eq("default-src 'self'; script-src 'strict-dynamic' 'nonce-123456'")
+      end
+
+      it "nonces are supported when minification is disabled" do
+        csp = ContentSecurityPolicy.new({default_src: %w('self'), script_src: [ContentSecurityPolicy::STRICT_DYNAMIC], script_nonce: 123456, disable_minification: true })
+        expect(csp.value).to eq("default-src 'self'; script-src 'strict-dynamic' 'nonce-123456' 'unsafe-inline'")
       end
     end
   end
