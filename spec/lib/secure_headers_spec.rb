@@ -117,6 +117,17 @@ module SecureHeaders
         expect(hash[XFrameOptions::HEADER_NAME]).to eq(XFrameOptions::SAMEORIGIN)
       end
 
+      it "allows you to override opting out without default_src" do
+        Configuration.default do |config|
+          config.csp = OPT_OUT
+        end
+
+        SecureHeaders.override_content_security_policy_directives(request, { frame_ancestors: %w('none') }, :enforced)
+
+        hash = SecureHeaders.header_hash_for(request)
+        expect(hash[ContentSecurityPolicyConfig::HEADER_NAME]).to eq("default-src https:; script-src 'self'")
+      end
+
       it "produces a hash of headers with default config" do
         Configuration.default
         hash = SecureHeaders.header_hash_for(request)
