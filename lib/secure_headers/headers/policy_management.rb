@@ -205,7 +205,7 @@ module SecureHeaders
           raise ContentSecurityPolicyConfigError.new("csp_report_only config must have :report_only set to true")
         end
 
-        ContentSecurityPolicyConfig.attrs.each do |key|
+        ContentSecurityPolicyConfig::ATTRS.each do |key|
           value = config.directive_value(key)
           next unless value
 

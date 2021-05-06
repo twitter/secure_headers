@@ -2,19 +2,46 @@
 module SecureHeaders
   module DynamicConfig
     def self.included(base)
-      base.send(:attr_reader, *base.attrs)
-      base.attrs.each do |attr|
-        base.send(:define_method, "#{attr}=") do |value|
-          if self.class.attrs.include?(attr)
-            write_attribute(attr, value)
-          else
-            raise ContentSecurityPolicyConfigError, "Unknown config directive: #{attr}=#{value}"
-          end
-        end
+      base.extend(ClassMethods)
+    end
+
+    module ClassMethods
+      def from_self(instance)
+        new_instance = new
+        new_instance.base_uri = instance.base_uri
+        new_instance.block_all_mixed_content = instance.block_all_mixed_content
+        new_instance.child_src = instance.child_src.dup
+        new_instance.connect_src = instance.connect_src.dup
+        new_instance.default_src = instance.default_src.dup
+        new_instance.font_src = instance.font_src.dup
+        new_instance.form_action = instance.form_action.dup
+        new_instance.frame_ancestors = instance.frame_ancestors.dup
+        new_instance.frame_src = instance.frame_src.dup
+        new_instance.img_src = instance.img_src.dup
+        new_instance.manifest_src = instance.manifest_src.dup
+        new_instance.media_src = instance.media_src.dup
+        new_instance.navigate_to = instance.navigate_to.dup
+        new_instance.object_src = instance.object_src.dup
+        new_instance.plugin_types = instance.plugin_types
+        new_instance.prefetch_src = instance.prefetch_src.dup
+        new_instance.preserve_schemes = instance.preserve_schemes
+        new_instance.report_only = instance.report_only
+        new_instance.report_uri = instance.report_uri.dup
+        new_instance.require_sri_for = instance.require_sri_for
+        new_instance.sandbox = instance.sandbox
+        new_instance.script_nonce = instance.script_nonce
+        new_instance.script_src = instance.script_src.dup
+        new_instance.style_nonce = instance.style_nonce
+        new_instance.style_src = instance.style_src.dup
+        new_instance.worker_src = instance.worker_src.dup
+        new_instance.upgrade_insecure_requests = instance.upgrade_insecure_requests
+        new_instance.disable_nonce_backwards_compatibility = instance.disable_nonce_backwards_compatibility
+        new_instance
       end
     end
 
-    def initialize(hash)
+
+    def initialize(hash = nil)
       @base_uri = nil
       @block_all_mixed_content = nil
       @child_src = nil
@@ -48,7 +75,7 @@ module SecureHeaders
       @upgrade_insecure_requests = nil
       @disable_nonce_backwards_compatibility = nil
 
-      from_hash(hash)
+      from_hash(hash) if hash
     end
 
     def update_directive(directive, value)
@@ -56,13 +83,13 @@ module SecureHeaders
     end
 
     def directive_value(directive)
-      if self.class.attrs.include?(directive)
+      if self.class::ATTRS.include?(directive)
         self.send(directive)
       end
     end
 
     def merge(new_hash)
-      new_config = self.dup
+      new_config = self.class.from_self(self)
       new_config.send(:from_hash, new_hash)
       new_config
     end
@@ -76,7 +103,7 @@ module SecureHeaders
     end
 
     def to_h
-      self.class.attrs.each_with_object({}) do |key, hash|
+      self.class::ATTRS.each_with_object({}) do |key, hash|
         value = self.send(key)
         hash[key] = value unless value.nil?
       end
@@ -102,7 +129,7 @@ module SecureHeaders
       hash.each_pair do |k, v|
         next if v.nil?
 
-        if self.class.attrs.include?(k)
+        if self.class::ATTRS.include?(k)
           write_attribute(k, v)
         else
           raise ContentSecurityPolicyConfigError, "Unknown config directive: #{k}=#{v}"
@@ -122,9 +149,7 @@ module SecureHeaders
     HEADER_NAME = "Content-Security-Policy".freeze
 
     ATTRS = PolicyManagement::ALL_DIRECTIVES + PolicyManagement::META_CONFIGS + PolicyManagement::NONCES
-    def self.attrs
-      ATTRS
-    end
+    attr_accessor *ATTRS
 
     include DynamicConfig
 
@@ -143,7 +168,9 @@ module SecureHeaders
     end
 
     def make_report_only
-      ContentSecurityPolicyReportOnlyConfig.new(self.to_h)
+      ContentSecurityPolicyReportOnlyConfig.from_self(self).tap do |config|
+        config.report_only = true
+      end
     end
   end
 

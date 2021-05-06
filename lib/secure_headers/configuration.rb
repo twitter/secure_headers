@@ -244,7 +244,7 @@ module SecureHeaders
       when OPT_OUT
         @csp = new_csp
       when ContentSecurityPolicyConfig
-        @csp = new_csp
+        @csp = new_csp.class.from_self(new_csp)
       when Hash
         @csp = ContentSecurityPolicyConfig.new(new_csp)
       else
@@ -263,7 +263,7 @@ module SecureHeaders
       when OPT_OUT
         @csp_report_only = new_csp
       when ContentSecurityPolicyReportOnlyConfig
-        @csp_report_only = new_csp.dup
+        @csp_report_only = new_csp.class.from_self(new_csp)
       when ContentSecurityPolicyConfig
         @csp_report_only = new_csp.make_report_only
       when Hash
