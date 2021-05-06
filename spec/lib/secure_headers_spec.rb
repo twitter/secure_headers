@@ -149,6 +149,20 @@ module SecureHeaders
           expect(hash[ContentSecurityPolicyConfig::HEADER_NAME]).to eq("default-src 'self'; script-src mycdn.com 'unsafe-inline' anothercdn.com")
         end
 
+        it "raises errors if append includes a semicolon" do
+          Configuration.default do |config|
+            config.csp = {
+              default_src: %w('self'),
+              script_src: %w(mycdn.com 'unsafe-inline')
+            }
+          end
+
+          SecureHeaders.append_content_security_policy_directives(request, script_src: ["anothercdn.com", ";object-src *"])
+          expect do
+            SecureHeaders.header_hash_for(request)
+          end.to raise_error(ContentSecurityPolicyConfigError, %(script_src contains a ";" in ";object-src *"))
+        end
+
         it "supports named appends" do
           Configuration.default do |config|
             config.csp = {
@@ -208,6 +222,20 @@ module SecureHeaders
           SecureHeaders.override_content_security_policy_directives(request, default_src: %w('none'))
           hash = SecureHeaders.header_hash_for(request)
           expect(hash[ContentSecurityPolicyConfig::HEADER_NAME]).to eq("default-src 'none'; script-src 'self'")
+        end
+
+        it "raises errors if override includes a semicolon" do
+          Configuration.default do |config|
+            config.csp = {
+              default_src: %w('self'),
+              script_src: %w(mycdn.com 'unsafe-inline')
+            }
+          end
+
+          SecureHeaders.override_content_security_policy_directives(request, script_src: ["anothercdn.com", ";object-src *"])
+          expect do
+            SecureHeaders.header_hash_for(request)
+          end.to raise_error(ContentSecurityPolicyConfigError, %(script_src contains a ";" in ";object-src *"))
         end
 
         it "overrides non-existant directives" do

@@ -105,13 +105,12 @@ module SecureHeaders
       source_list = @config.directive_value(directive)
       if source_list != OPT_OUT && source_list && source_list.any?
         minified_source_list = minify_source_list(directive, source_list).join(" ")
-
-        if minified_source_list =~ /(\n|;)/
-          Kernel.warn("#{directive} contains a #{$1} in #{minified_source_list.inspect} which will raise an error in future versions. It has been replaced with a blank space.")
+        if minified_source_list =~ ESCAPE_SEQUENCE
+          # Should not happen. Just in case.
+          raise ContentSecurityPolicyConfigError.new("generated #{directive} contains a #{$1.inspect} in #{minified_source_list.inspect}")
         end
 
-        escaped_source_list = minified_source_list.gsub(/[\n;]/, " ")
-        [symbol_to_hyphen_case(directive), escaped_source_list].join(" ").strip
+        [symbol_to_hyphen_case(directive), minified_source_list].join(" ").strip
       end
     end
 

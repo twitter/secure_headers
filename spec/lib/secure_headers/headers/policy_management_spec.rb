@@ -63,13 +63,13 @@ module SecureHeaders
       it "requires a :default_src value" do
         expect do
           ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(script_src: %w('self')))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+        end.to raise_error(ContentSecurityPolicyConfigError, ":default_src is required")
       end
 
       it "requires a :script_src value" do
         expect do
           ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_src: %w('self')))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+        end.to raise_error(ContentSecurityPolicyConfigError, ":script_src is required, falling back to default-src is too dangerous. Use `script_src: OPT_OUT` to override")
       end
 
       it "accepts OPT_OUT as a script-src value" do
@@ -80,32 +80,50 @@ module SecureHeaders
 
       it "requires :report_only to be a truthy value" do
         expect do
-          ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_opts.merge(report_only: "steve")))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+          ContentSecurityPolicy.validate_config!(ContentSecurityPolicyReportOnlyConfig.new(default_opts.merge(report_only: "steve")))
+        end.to raise_error(ContentSecurityPolicyConfigError, "report_only must be a boolean value")
       end
 
       it "requires :preserve_schemes to be a truthy value" do
         expect do
           ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_opts.merge(preserve_schemes: "steve")))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+        end.to raise_error(ContentSecurityPolicyConfigError, "preserve_schemes must be a boolean value")
       end
 
       it "requires :block_all_mixed_content to be a boolean value" do
         expect do
           ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_opts.merge(block_all_mixed_content: "steve")))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+        end.to raise_error(ContentSecurityPolicyConfigError, "block_all_mixed_content must be a boolean. Found String value")
       end
 
       it "requires :upgrade_insecure_requests to be a boolean value" do
         expect do
           ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_opts.merge(upgrade_insecure_requests: "steve")))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+        end.to raise_error(ContentSecurityPolicyConfigError, "upgrade_insecure_requests must be a boolean. Found String value")
       end
 
       it "requires all source lists to be an array of strings" do
         expect do
-          ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_src: "steve"))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+          ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_src: "steve", script_src: SecureHeaders::OPT_OUT))
+        end.to raise_error(ContentSecurityPolicyConfigError, "default_src must be an array of strings")
+      end
+
+      it "disallows semicolons in configs" do
+        expect do
+          ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_src: %w('self'), script_src: %w(mycdn.com), object_src: ["http://foo.com ; script-src *"]))
+        end.to raise_error(ContentSecurityPolicyConfigError, %(object_src contains a ";" in "http://foo.com ; script-src *"))
+      end
+
+      it "disallows newlines in configs" do
+        expect do
+          ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_src: %w('self'), script_src: %w(mycdn.com), object_src: ["http://foo.com \n script-src *"]))
+        end.to raise_error(ContentSecurityPolicyConfigError, %r(object_src contains a "\\n" in "http://foo.com \\n script-src))
+      end
+
+      it "catches semicolons that somehow bypass validation" do
+        expect do
+          ContentSecurityPolicy.new(ContentSecurityPolicyConfig.new(default_src: %w('self'), script_src: %w(mycdn.com), object_src: ["http://foo.com ; script-src *"])).value
+        end.to raise_error(ContentSecurityPolicyConfigError, %(generated object_src contains a ";" in "foo.com ; script-src *"))
       end
 
       it "allows nil values" do
@@ -117,26 +135,32 @@ module SecureHeaders
       it "rejects unknown directives / config" do
         expect do
           ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_src: %w('self'), default_src_totally_mispelled: "steve"))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+        end.to raise_error(ContentSecurityPolicyConfigError, "Unknown config directive: default_src_totally_mispelled=steve")
       end
 
       # this is mostly to ensure people don't use the antiquated shorthands common in other configs
       it "performs light validation on source lists" do
         expect do
           ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_src: %w(self none inline eval), script_src: %w('self')))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+        end.to raise_error(ContentSecurityPolicyConfigError, "default_src contains an invalid keyword source (self). This value must be single quoted.")
       end
 
       it "rejects anything not of the form allow-* as a sandbox value" do
         expect do
           ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_opts.merge(sandbox: ["steve"])))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+        end.to raise_error(ContentSecurityPolicyConfigError, %(sandbox must be True or an array of zero or more sandbox token strings (ex. allow-forms). Was ["steve"]))
       end
 
-      it "accepts anything of the form allow-* as a sandbox value " do
+      it "accepts anything of the form allow-* as a sandbox value" do
         expect do
           ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_opts.merge(sandbox: ["allow-foo"])))
         end.to_not raise_error
+      end
+
+      it "rejects escapes in sandbox value" do
+        expect do
+          ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_opts.merge(sandbox: ["allow-; script-src foo"])))
+        end.to raise_error(ContentSecurityPolicyConfigError, %(sandbox contains a ";" in "allow-; script-src foo"))
       end
 
       it "accepts true as a sandbox policy" do
@@ -148,10 +172,16 @@ module SecureHeaders
       it "rejects anything not of the form type/subtype as a plugin-type value" do
         expect do
           ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_opts.merge(plugin_types: ["steve"])))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+        end.to raise_error(ContentSecurityPolicyConfigError, "plugin_types must be an array of valid media types (ex. application/pdf)")
       end
 
-      it "accepts anything of the form type/subtype as a plugin-type value " do
+      it "rejects escape values as plugin-type value" do
+        expect do
+          ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_opts.merge(plugin_types: [";/script-src*"])))
+        end.to raise_error(ContentSecurityPolicyConfigError, %(plugin_types contains a ";" in ";/script-src*"))
+      end
+
+      it "accepts anything of the form type/subtype as a plugin-type value" do
         expect do
           ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_opts.merge(plugin_types: ["application/pdf"])))
         end.to_not raise_error
@@ -160,7 +190,7 @@ module SecureHeaders
       it "doesn't allow report_only to be set in a non-report-only config" do
         expect do
           ContentSecurityPolicy.validate_config!(ContentSecurityPolicyConfig.new(default_opts.merge(report_only: true)))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+        end.to raise_error(ContentSecurityPolicyConfigError, "Only the csp_report_only config should set :report_only to true")
       end
 
       it "allows report_only to be set in a report-only config" do
@@ -257,7 +287,7 @@ module SecureHeaders
         default_policy = Configuration.dup
         expect do
           ContentSecurityPolicy.combine_policies(default_policy.csp.to_h, script_src: %w(anothercdn.com))
-        end.to raise_error(ContentSecurityPolicyConfigError)
+        end.to raise_error(ContentSecurityPolicyConfigError, "Attempted to override an opt-out CSP config.")
       end
     end
   end

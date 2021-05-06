@@ -176,6 +176,10 @@ module SecureHeaders
 
     REQUIRE_SRI_FOR_VALUES = Set.new(%w(script style))
 
+    # These values are not valid in a policy and can be used to escape context
+    # boundaries
+    ESCAPE_SEQUENCE = /(\n|;)/
+
     module ClassMethods
       # Public: generate a header name, value array that is user-agent-aware.
       #
@@ -340,7 +344,7 @@ module SecureHeaders
           v.is_a?(String) && v.start_with?("allow-")
         end
         if !valid
-          raise ContentSecurityPolicyConfigError.new("#{directive} must be True or an array of zero or more sandbox token strings (ex. allow-forms)")
+          raise ContentSecurityPolicyConfigError.new("#{directive} must be True or an array of zero or more sandbox token strings (ex. allow-forms). Was #{sandbox_token_expression.inspect}")
         end
       end
 
@@ -351,7 +355,7 @@ module SecureHeaders
         ensure_array_of_strings!(directive, media_type_expression)
         valid = media_type_expression.compact.all? do |v|
           # All media types are of the form: <type from RFC 2045> "/" <subtype from RFC 2045>.
-          v =~ /\A.+\/.+\z/
+          v =~ /\A[^\n;]+\/[^\n;]+\z/
         end
         if !valid
           raise ContentSecurityPolicyConfigError.new("#{directive} must be an array of valid media types (ex. application/pdf)")
@@ -388,7 +392,18 @@ module SecureHeaders
       end
 
       def ensure_array_of_strings!(directive, value)
-        if (!value.is_a?(Array) || !value.compact.all? { |v| v.is_a?(String) })
+        unless value.is_a?(Array)
+          raise ContentSecurityPolicyConfigError.new("#{directive} must be an array of strings")
+        end
+
+        all_valid_strings = value.compact.all? do |v|
+          if v =~ ESCAPE_SEQUENCE
+            raise ContentSecurityPolicyConfigError.new("#{directive} contains a #{$1.inspect} in #{v.inspect}")
+          end
+          v.is_a?(String)
+        end
+
+        unless all_valid_strings
           raise ContentSecurityPolicyConfigError.new("#{directive} must be an array of strings")
         end
       end

@@ -28,16 +28,6 @@ module SecureHeaders
         expect(ContentSecurityPolicy.new.value).to eq("default-src https:; form-action 'self'; img-src https: data: 'self'; object-src 'none'; script-src https:; style-src 'self' 'unsafe-inline' https:")
       end
 
-      it "deprecates and escapes semicolons in directive source lists" do
-        expect(Kernel).to receive(:warn).with(%(frame_ancestors contains a ; in "google.com;script-src *;.;" which will raise an error in future versions. It has been replaced with a blank space.))
-        expect(ContentSecurityPolicy.new(frame_ancestors: %w(https://google.com;script-src https://*;.;)).value).to eq("frame-ancestors google.com script-src * .")
-      end
-
-      it "deprecates and escapes semicolons in directive source lists" do
-        expect(Kernel).to receive(:warn).with(%(frame_ancestors contains a \n in "\\nfoo.com\\nhacked" which will raise an error in future versions. It has been replaced with a blank space.))
-        expect(ContentSecurityPolicy.new(frame_ancestors: ["\nfoo.com\nhacked"]).value).to eq("frame-ancestors  foo.com hacked")
-      end
-
       it "discards 'none' values if any other source expressions are present" do
         csp = ContentSecurityPolicy.new(default_opts.merge(child_src: %w('self' 'none')))
         expect(csp.value).not_to include("'none'")
